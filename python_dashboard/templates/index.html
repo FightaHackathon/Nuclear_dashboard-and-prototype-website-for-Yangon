@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SMR Energy Mix Live</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background:#0f172a; color:#e5e7eb; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .grid { display:grid; grid-template-columns: 1fr 360px; gap: 16px; }
+    .card { background:#0b1220; border:1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; }
+    canvas { width:100% !important; height: 320px !important; }
+    .legend { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SMR Operations Center</h1>
+    <p>Generation vs Demand (Live) and Current Mix</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Generation vs Demand (Live)</h3>
+        <canvas id="lineChart"></canvas>
+      </div>
+      <div class="card">
+        <h3>Current Mix</h3>
+        <canvas id="pieChart"></canvas>
+        <div id="mixLegend" class="legend"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const lineCtx = document.getElementById('lineChart').getContext('2d');
+    const pieCtx = document.getElementById('pieChart').getContext('2d');
+
+    const lineChart = new Chart(lineCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Nuclear', data: [], borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.2)', tension: 0.3 },
+          { label: 'Fossil', data: [], borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.2)', tension: 0.3 },
+          { label: 'Hydro', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.2)', tension: 0.3 },
+          { label: 'Demand', data: [], borderColor: '#eab308', backgroundColor: 'rgba(234,179,8,0.2)', borderDash: [6,6], tension: 0.3 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#9ca3af' } }
+        },
+        scales: {
+          x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+          y: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+        }
+      }
+    });
+
+    const pieChart = new Chart(pieCtx, {
+      type: 'pie',
+      data: {
+        labels: ['Nuclear', 'Fossil', 'Hydro'],
+        datasets: [{
+          data: [0,0,0],
+          backgroundColor: ['#14b8a6', '#ef4444', '#3b82f6']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true, labels: { color: '#9ca3af' } } }
+      }
+    });
+
+    function sanitizeNum(v, def=0) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : def;
+    }
+
+    async function pull() {
+      try {
+        const r = await fetch('/api/state');
+        const j = await r.json();
+        const hist = Array.isArray(j.history) ? j.history : [];
+        const s = j.state || {};
+
+        // Line chart
+        const labels = hist.map(p => p.name);
+        const nuclear = hist.map(p => sanitizeNum(p.Nuclear));
+        const fossil = hist.map(p => sanitizeNum(p.Fossil));
+        const hydro = hist.map(p => sanitizeNum(p.Hydro));
+        const demand = hist.map(p => sanitizeNum(p.Demand));
+
+        lineChart.data.labels = labels;
+        lineChart.data.datasets[0].data = nuclear;
+        lineChart.data.datasets[1].data = fossil;
+        lineChart.data.datasets[2].data = hydro;
+        lineChart.data.datasets[3].data = demand;
+        lineChart.update('none');
+
+        // Pie chart
+        pieChart.data.datasets[0].data = [sanitizeNum(s.nuclear), sanitizeNum(s.fossil), sanitizeNum(s.hydro)];
+        pieChart.update('none');
+
+        // Legend numbers
+        document.getElementById('mixLegend').innerHTML = `
+          <div>Nuclear Output: <strong>${sanitizeNum(s.nuclear).toFixed(0)} MW</strong></div>
+          <div>Fossil Fuel Gen.: <strong>${sanitizeNum(s.fossil).toFixed(0)} MW</strong></div>
+          <div>Hydro Generation: <strong>${sanitizeNum(s.hydro).toFixed(0)} MW</strong></div>
+        `;
+      } catch (e) {
+        // swallow to keep UI running
+      }
+    }
+
+    // Initial fill + polling
+    pull();
+    setInterval(pull, 2000);
+  </script>
+</body>
+</html>
